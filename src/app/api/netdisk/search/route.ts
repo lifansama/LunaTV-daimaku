@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
+import { resolvePanSouAuthHeader } from '@/lib/pansou-auth';
 
 export const runtime = 'nodejs';
 
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
   const config = await getConfig();
   const netDiskConfig = config.NetDiskConfig;
 
-  // 检查是否启用网盘搜索
+  // 检查是否启用网盘搜索 - 必须在缓存检查之前
   if (!netDiskConfig?.enabled) {
     return NextResponse.json({ error: '网盘搜索功能未启用' }, { status: 400 });
   }
@@ -34,7 +35,8 @@ export async function GET(request: NextRequest) {
   // 网盘搜索缓存：30分钟
   const NETDISK_CACHE_TIME = 30 * 60; // 30分钟（秒）
   const enabledCloudTypesStr = (netDiskConfig.enabledCloudTypes || []).sort().join(',');
-  const cacheKey = `netdisk-search-${query}-${enabledCloudTypesStr}`;
+  // 缓存key包含功能状态，确保功能开启/关闭时缓存隔离
+  const cacheKey = `netdisk-search-enabled-${query}-${enabledCloudTypesStr}`;
   
   console.log(`🔍 检查网盘搜索缓存: ${cacheKey}`);
   
@@ -62,12 +64,23 @@ export async function GET(request: NextRequest) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), (netDiskConfig.timeout || 30) * 1000);
 
+    const authHeader = await resolvePanSouAuthHeader({
+      serverUrl: netDiskConfig.pansouUrl,
+      token: netDiskConfig.token,
+      username: netDiskConfig.username,
+      password: netDiskConfig.password,
+      timeoutMs: (netDiskConfig.timeout || 30) * 1000,
+    });
+
+    const fetchHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'LunaTV/1.0',
+    };
+    if (authHeader) fetchHeaders['Authorization'] = authHeader;
+
     const pansouResponse = await fetch(`${netDiskConfig.pansouUrl}/api/search`, {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'User-Agent': 'LunaTV/1.0'
-      },
+      headers: fetchHeaders,
       signal: controller.signal,
       body: JSON.stringify({
         kw: query,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getConfig } from '@/lib/config';
+import { clearConfigCache, getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证网盘类型
-    const validCloudTypes = ['baidu', 'aliyun', 'quark', 'tianyi', 'uc', 'mobile', '115', 'pikpak', 'xunlei', '123', 'magnet', 'ed2k'];
+    const validCloudTypes = ['baidu', 'aliyun', 'quark', 'guangya', 'tianyi', 'uc', 'mobile', '115', 'pikpak', 'xunlei', '123', 'magnet', 'ed2k'];
     for (const type of netDiskConfig.enabledCloudTypes) {
       if (!validCloudTypes.includes(type)) {
         return NextResponse.json({ error: `Invalid cloud type: ${type}` }, { status: 400 });
@@ -73,13 +73,23 @@ export async function POST(request: NextRequest) {
       enabled: netDiskConfig.enabled,
       pansouUrl: netDiskConfig.pansouUrl.trim(),
       timeout: netDiskConfig.timeout,
-      enabledCloudTypes: netDiskConfig.enabledCloudTypes
+      enabledCloudTypes: netDiskConfig.enabledCloudTypes,
+      token: typeof netDiskConfig.token === 'string' ? netDiskConfig.token.trim() : '',
+      username: typeof netDiskConfig.username === 'string' ? netDiskConfig.username.trim() : '',
+      password: typeof netDiskConfig.password === 'string' ? netDiskConfig.password.trim() : '',
     };
 
     // 保存配置到数据库
     await db.saveAdminConfig(adminConfig);
+    
+    // 清除配置缓存，强制下次重新从数据库读取
+    clearConfigCache();
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true }, {
+      headers: {
+        'Cache-Control': 'no-store', // 不缓存结果
+      },
+    });
 
   } catch (error) {
     console.error('Save netdisk config error:', error);

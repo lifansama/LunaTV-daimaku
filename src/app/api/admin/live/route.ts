@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getConfig } from '@/lib/config';
+import { clearConfigCache, getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { deleteCachedLiveChannels, refreshLiveChannels } from '@/lib/live';
 
@@ -26,7 +26,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { action, key, name, url, ua, epg } = body;
+    const { action, key, name, url, ua, epg, isTvBox } = body;
+    console.log(`[Admin API] Action: ${action}, Key: ${key}, isTvBox: ${isTvBox}`);
 
     if (!config) {
       return NextResponse.json({ error: '配置不存在' }, { status: 404 });
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
           url: url as string,
           ua: ua || '',
           epg: epg || '',
+          isTvBox: !!isTvBox,
           from: 'custom' as 'custom' | 'config',
           channelNumber: 0,
           disabled: false,
@@ -119,6 +121,7 @@ export async function POST(request: NextRequest) {
         editSource.url = url as string;
         editSource.ua = ua || '';
         editSource.epg = epg || '';
+        editSource.isTvBox = !!isTvBox;
 
         // 刷新频道数
         try {
@@ -162,8 +165,15 @@ export async function POST(request: NextRequest) {
 
     // 保存配置
     await db.saveAdminConfig(config);
+    
+    // 清除配置缓存，强制下次重新从数据库读取
+    clearConfigCache();
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true }, {
+      headers: {
+        'Cache-Control': 'no-store', // 不缓存结果
+      },
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '操作失败' },
